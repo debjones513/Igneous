@@ -164,3 +164,12 @@ func ParsePacket(buf []byte) (p Packet, err error) {
 	err = p.Parse(buf)
 	return
 }
+
+// ParseOpCodeFromPacket parses the op code from a packet buffer.
+func ParseOpCodeFromPacket(buf []byte) (opcode uint16, err error) {
+
+	if opcode, _, err = parseUint16(buf); err != nil {
+		return
+	}
+	return
+}
