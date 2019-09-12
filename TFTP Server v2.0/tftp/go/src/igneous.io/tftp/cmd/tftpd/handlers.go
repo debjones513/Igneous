@@ -90,18 +90,19 @@ func handle_write(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 func handle_data(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 
+	// Get the current tracking data.
+
+	var rt RequestTracker
+	rt = write_addr_map[addr.String()]
+
 	// Serialize access the code between Mux.Lock() and Mux.Unlock(), per client address.
 
-	write_addr_map[addr.String()].Mux.Lock()
+	rt.Mux.Lock()
 
 	// If we are receiving a data packet, then the client is writing to the server.
 
 	fmt.Printf("Handle Data Packet Packet: %+v \n", p)
 
-	// Get the current tracking data.
-
-	var rt RequestTracker
-	rt = write_addr_map[addr.String()]
 
 	// Send an ack to the client.
 	//
@@ -142,7 +143,7 @@ func handle_error(pc net.PacketConn, addr net.Addr, p tftp.PacketError) {
 
 func send_ack(pc net.PacketConn, addr net.Addr, block_num uint16) {
 
-	fmt.Printf("Send Ack Packet: %+v \n", p)
+	fmt.Printf("Send Ack Packet: %+v \n", block_num)
 
 	// Construct an ack packet and send it to the client
 
