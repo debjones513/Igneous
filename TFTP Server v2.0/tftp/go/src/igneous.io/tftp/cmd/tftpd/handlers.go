@@ -5,21 +5,23 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"strings"
 )
 
+// Tracks the last block sent or received per request
 type RequestTracker struct {
 	PacketReq tftp.PacketRequest
 	BlockNum uint16
 }
 
-// Maps file names to file data
+// Maps file names to file contents - TODO File size is limited, OK since this is just a code exercise
 var file_cache map[string]string
 
-// Maps client read addr to the last block transmitted
-var write_addr_map map[string]RequestTracker
-
-// Maps client write addr to the last block transmitted
+// Maps client read addr to the last block transmitted - TODO assumes each client will have a unique port id?
 var read_addr_map map[string]RequestTracker
+
+// Maps client write addr to the last block transmitted - TODO assumes each client will have a unique port id?
+var write_addr_map map[string]RequestTracker
 
 func init() {
 	file_cache = make(map[string]string)
@@ -71,6 +73,7 @@ func handle_write(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 	fmt.Printf("Handle write Packet Packet: %+v \n", p)
 
 	// Create a new cache entry for the file.
+	// TODO Existing files are overwritten without warning - is this aligned with the requirements?
 
 	file_cache[p.Filename] = ""
 
@@ -81,12 +84,37 @@ func handle_write(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 	rt.BlockNum = 0
 
 	write_addr_map[addr.String()] = rt
+}
 
-	// Now loop sending data packets, and waiting for an ack for each packet.
+func handle_data(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 
-	//for {
-	//	file_cache[p.Filename]
-	//}
+	// If we are receiving a data packet, then the client is writing to the server.
+
+	fmt.Printf("Handle Data Packet Packet: %+v \n", p)
+
+	// Write the data to the in-memory file.
+
+	var rt RequestTracker
+	rt = write_addr_map[addr.String()]
+
+	var new_block bytes.Buffer
+	new_block.Write(p.Data)
+
+	var file_data []string
+	file_data = append(file_data, file_cache[rt.PacketReq.Filename])	// Current data
+	file_data = append(file_data, new_block.String())					// New block
+
+	file_cache[rt.PacketReq.Filename] = strings.Join(file_data, "")
+
+	// Update the meta data
+
+	rt.BlockNum += 1
+	write_addr_map[addr.String()] = rt
+
+	// Send an ack to the client.
+
+	
+
 }
 
 func handle_ack(pc net.PacketConn, addr net.Addr, p tftp.PacketAck) {
@@ -102,18 +130,6 @@ func handle_ack(pc net.PacketConn, addr net.Addr, p tftp.PacketAck) {
 	b = pr_send.Serialize()
 
 	pc.WriteTo(b, addr)
-}
-
-func handle_data(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
-
-	fmt.Printf("Handle Data Packet Packet: %+v \n", p)
-
-	// Now loop sending data packets, and waiting for an ack for each packet.
-
-	//for {
-	//	file_cache[p.Filename]
-	//}
-
 }
 
 func handle_error(pc net.PacketConn, addr net.Addr, p tftp.PacketError) {

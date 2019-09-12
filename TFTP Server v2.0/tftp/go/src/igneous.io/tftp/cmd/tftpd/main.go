@@ -12,7 +12,7 @@ import (
 
 func main() {
 
-	// Setup to listen on port 69 for all IPs on the local network (localhost only).
+	// Listen on port 69 for all IPs on the local network (localhost only).
 
 	pc, err := net.ListenPacket("udp", ":69")
 	if err != nil {
@@ -26,8 +26,8 @@ func main() {
 	// Handle requests
 
 	for {
-
 		buf := make([]byte, 1024)
+
 		n, addr, err := pc.ReadFrom(buf)
 		if err != nil {
 			continue
@@ -40,7 +40,7 @@ func main() {
 
 func serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 
-	// Parse the packet from the buffer - checks for parsing errors.
+	// Parse the op code from the buffer.
 
 	op_code, err := tftp.ParseOpCodeFromPacket(buf)
 	if err != nil {
