@@ -33,7 +33,7 @@ func main() {
 			continue
 		}
 
-		go serve(pc, addr, buf[:n])
+		serve(pc, addr, buf[:n])
 	}
 
 }
@@ -47,7 +47,7 @@ func serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 		return
 	}
 
-	// Switch on the op code, create the target object type. and forward the packet to the correct handler.
+	// Switch on the op code, create the target object type, and forward the packet to the correct handler.
 
 	switch op_code {
 
@@ -84,7 +84,7 @@ func serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 		var packet_error tftp.PacketError
 		packet_error.Parse(buf)
 
-		handle_error(pc, addr, packet_error)
+		go handle_error(pc, addr, packet_error)
 
 	default:
 		err = fmt.Errorf("unexpected packet type %s", op_code)

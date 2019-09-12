@@ -87,6 +87,8 @@ func main() {
 	}
 	defer conn.Close()
 
+	fmt.Printf("Connection: %+v \n", conn)
+
 	// Generate requests
 
 	//write_file(conn, "xyz.txt")
