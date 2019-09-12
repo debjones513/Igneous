@@ -40,4 +40,5 @@ Questions
 -----
 1. The net.Addr struct will have a different port for each client - true?
 2. Uploading the same file twice will overwrite the existing file, file data is updated.
+3. Ack only implies that we received the packet, not that we successfully wrote the packet - true?
 

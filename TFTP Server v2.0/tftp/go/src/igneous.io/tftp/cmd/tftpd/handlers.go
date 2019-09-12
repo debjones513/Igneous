@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 )
 
 // Tracks the last block sent or received per request
 type RequestTracker struct {
 	PacketReq tftp.PacketRequest
 	BlockNum uint16
+	Mux sync.Mutex
 }
 
 // Maps file names to file contents - TODO File size is limited, OK since this is just a code exercise
@@ -88,14 +90,29 @@ func handle_write(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 func handle_data(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 
+	// Serialize access the code between Mux.Lock() and Mux.Unlock(), per client address.
+
+	write_addr_map[addr.String()].Mux.Lock()
+
 	// If we are receiving a data packet, then the client is writing to the server.
 
 	fmt.Printf("Handle Data Packet Packet: %+v \n", p)
 
-	// Write the data to the in-memory file.
+	// Get the current tracking data.
 
 	var rt RequestTracker
 	rt = write_addr_map[addr.String()]
+
+	// Send an ack to the client.
+	//
+	// Once the ack is sent, the client will send the next packet. We lock the meta data, so that if the next packet
+	// arrives and begins processing, before process for this packet is complete, the next packet will block at least
+	// until we can do the write and update the meta data.
+	// TODO Ack tells the client we received the packet, if we fail to write, we panic, and the server fails.
+
+	send_ack(pc, addr, p.BlockNum)
+
+	// Write the next block of data to the in-memory file.
 
 	var new_block bytes.Buffer
 	new_block.Write(p.Data)
@@ -106,30 +123,16 @@ func handle_data(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 
 	file_cache[rt.PacketReq.Filename] = strings.Join(file_data, "")
 
-	// Update the meta data
+	// Update the meta data.
 
-	rt.BlockNum += 1
+	rt.BlockNum = p.BlockNum
 	write_addr_map[addr.String()] = rt
-
-	// Send an ack to the client.
-
-	
-
+	rt.Mux.Unlock()
 }
 
 func handle_ack(pc net.PacketConn, addr net.Addr, p tftp.PacketAck) {
 
-	fmt.Printf("Handle ack Packet Packet: %+v \n", p)
-
-	// Construct an ack packet and send it to the client
-
-	var pr_send tftp.PacketAck
-	pr_send.BlockNum = p.BlockNum
-
-	b := make([]byte, 1024)
-	b = pr_send.Serialize()
-
-	pc.WriteTo(b, addr)
+	fmt.Printf("Handle Ack Packet: %+v \n", p)
 }
 
 func handle_error(pc net.PacketConn, addr net.Addr, p tftp.PacketError) {
@@ -137,20 +140,20 @@ func handle_error(pc net.PacketConn, addr net.Addr, p tftp.PacketError) {
 	fmt.Printf("Handle Error Packet Packet: %+v \n", p)
 }
 
-
-func send_ack(pc net.PacketConn, addr net.Addr, p tftp.PacketAck) {
+func send_ack(pc net.PacketConn, addr net.Addr, block_num uint16) {
 
 	fmt.Printf("Send Ack Packet: %+v \n", p)
 
 	// Construct an ack packet and send it to the client
 
-	var pr_send tftp.PacketAck
-	pr_send.BlockNum = p.BlockNum
+	var ack_packet tftp.PacketAck
+	ack_packet.BlockNum = block_num
 
 	b := make([]byte, 1024)
-	b = pr_send.Serialize()
+	b = ack_packet.Serialize()
 
 	pc.WriteTo(b, addr)
 }
+
 
 
