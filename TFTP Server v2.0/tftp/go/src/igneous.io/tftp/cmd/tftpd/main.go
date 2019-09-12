@@ -81,6 +81,10 @@ func serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 
 	case tftp.OpError:
 
+		// TFTP recognizes only one error condition that does not cause
+		//   termination, the source port of a received packet being incorrect.
+		//   In this case, an error packet is sent to the originating host.
+
 		var packet_error tftp.PacketError
 		packet_error.Parse(buf)
 
