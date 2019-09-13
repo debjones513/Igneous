@@ -143,6 +143,10 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	rt := writeAddrMap[addr.String()]
 
 	// Serialize access to the code between Mux.Lock() and Mux.Unlock(), per client address.
+	// This serializes the block writes.
+	// The first block takes the lock, acks, and continues with the write.
+	// A second block's request may then wait for the lock while the previous block is written.
+	// Order is guaranteed.
 
 	rt.Mux.Lock()
 	defer rt.DeferredUnlock()
@@ -194,6 +198,7 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 
 	if len(p.Data) == 0 {
 		delete(writeAddrMap, addr.String())
+		fmt.Printf("Handle Data Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
 		return
 	}
 
@@ -405,6 +410,10 @@ func sendData(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 			}
 		}
 
+	}
+
+	if _, ok := readAddrMap[addr.String()]; ok == true {
+		delete(readAddrMap, addr.String())
 	}
 
 	fmt.Printf("Send Data Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)

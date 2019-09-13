@@ -53,6 +53,14 @@ Tested using port 9969 rather than stopping the TFTP service that ships with Mac
 
 No GoLang testing done yet...
 
+Tested using various files, and the ```diff``` tool. For example upload a file on disk to my server, 
+rename local file, download file from my server and diff.
+
+#### Mac TFTP Client idiosyncracies
+If I call ```get xyz```, and that file exists in my local directory, but does not exist on 
+my TFTP server, my server returns and error packet (which is ack'ed) and the client zeros out the local file.
+
+Not sure if this is expected behavior...
 
 Notes, Questions
 -----
@@ -115,7 +123,7 @@ SPEC: Dest. Port      Picked by destination machine (69 for RRQ or WRQ)."
 
 So we could handle data and acks on some other port...
 
-####Data Packets
+#### Data Packets
 SPEC: "A data packet of less than 512 bytes signals termination of a transfer."
 
 An error packet also signals termination of transfer.
@@ -124,6 +132,12 @@ An error packet also signals termination of transfer.
 
 ####Retry and Timeout constants
 TODO: These should be provided as commandline params, and good defaults used.
+
+#### Mac TFTP Client idiosyncracies
+If I call ```get xyz```, and that file exists in my local directory, but does not exist on 
+my TFTP server, my server returns and error packet (which is ack'ed) and the client zeros out the local file.
+
+Not sure if this is expected behavior...
 
 
 

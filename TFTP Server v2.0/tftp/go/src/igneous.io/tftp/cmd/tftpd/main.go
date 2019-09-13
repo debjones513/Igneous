@@ -14,7 +14,7 @@ func main() {
 
 	// Listen on port 69 for all IPs on the local network (localhost only).
 
-	pc, err := net.ListenPacket("udp", ":9969")
+	pc, err := net.ListenPacket("udp", ":69")
 	if err != nil {
 		log.Fatal(err)
 	}

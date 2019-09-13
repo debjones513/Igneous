@@ -34,12 +34,14 @@ func (rt *RequestTracker) DeferredUnlock() {
 }
 
 func (rt *RequestTracker) RetryTimer()  {
+
 	time.Sleep(time.Second * RetryInterval)
 	rt.Timeout <- true
 	return
 }
 
 func (rt *RequestTracker) TimeoutTimer()  {
+
 	time.Sleep(time.Second * TimeoutInterval)
 	rt.Timeout <- true
 	return
