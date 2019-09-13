@@ -12,20 +12,36 @@ Caveat
 !!! THIS IS NOT PRODUCTION CODE!!!
 
 This code is written as a coding exercise. No design review, limited testing, and comments targeting 
-an exercise - callouts where further work would need to be done, design points would need to be further
- considered, etc.
+an exercise - callouts where further work would need to be done, design points that would need to be further 
+considered, etc.
  
-Testing was done using only a single server - remote transfers are untested.
+Minimal testing was done using only a single server.
+
+Coding style uses liberal white space. I know many have strong opinions about code style - I have no problem 
+conforming to the style that is preferred by the team.
+
+The comments are a bit wordy in places. Since this is a code exercise (not production code), the intention is to 
+give the reviewers a little insight into what I was thinking.
+
+TODO's call out some of the work that would need to be done to finalize a production ready service.
 
 Usage
 -----
 If you are running this code under a debugger, you will want to set the TFTP client timeouts to a value greater 
 than the defaults. See ```rexmt``` and ```timeouts``` values for Mac.
 
+The listening port is set to 69 in the server sources. If you use port 69, you will have to shutdown any local 
+TFTP service before running the code exercise service. I tested using port 9969, which requires a code change 
+in main.go and a rebuild.
+
 ####On Mac
 The tftp client app is pre-installed on your Mac.
 
 Run ```tftp```
+
+If using port 9969, set the host and port at startup. Replace the command above with
+
+```tftp localhost 9969```
 
 Set the Mode to binary ('binary' and 'octet' are interchangable terms).
 
@@ -45,99 +61,27 @@ TODO
 
 Testing
 -------
-Testing was done first using a quick client app that will send a packet. Once a simle packet transfer was 
+Testing was done first using a quick client app that will send a packet. Once a simple packet transfer was 
 verified, and the server was stubbed out a little farther, switched over to testing using the TFTP client 
-that ships with Mac.
+that ships with Mac. The code in the 'client' folder can be ignored.
 
 Tested using port 9969 rather than stopping the TFTP service that ships with Mac.
 
-No GoLang testing done yet...
+No GoLang testing done yet. I have worked on teams that used GoLang, but we did not use the test functionality. 
+I will have to do some reading there.
 
 Tested using various files, and the ```diff``` tool. For example upload a file on disk to my server, 
 rename local file, download file from my server and diff.
 
-#### Mac TFTP Client idiosyncracies
-If I call ```get xyz```, and that file exists in my local directory, but does not exist on 
-my TFTP server, my server returns and error packet (which is ack'ed) and the client zeros out the local file.
-
-Not sure if this is expected behavior...
-
-Notes, Questions
------
-#### Unique identifier for requests
-The net.Addr struct will have a different port for each client on localhost - true? Yes
-
-Spec: "In order to create a connection, each end of the connection chooses a
-          TID for itself, to be used for the duration of that connection.  The
-          TID's chosen for a connection should be randomly chosen, so that the
-          probability that the same number is chosen twice in immediate
-          succession is very low.  Every packet has associated with it the two
-          TID's of the ends of the connection, the source TID and the
-          destination TID.  These TID's are handed to the supporting UDP (or
-          other datagram protocol) as the source and destination ports. "
-
-#### Uploading the same file twice
-Uploading the same file twice will overwrite the existing file, file data is updated. 
-
-No - this is an error case ...
-
-```Error 6         File already exists.```
-
-#### Ack
-Ack only implies that we received the packet, not that we successfully wrote the packet - true? Or is it better\OK 
-to wait until the write is done to ack - less concurrency, but if the packet data were corrupted (nil?), failing to ack 
-will trigger a resend. 
-
-If we want the concurrency, then we ack right away, but then we cannot get a packet resend from the client to retry.
-
-Spec: "
-Most errors cause termination of the connection.  An error is
-   signalled by sending an error packet.  This packet is not
-   acknowledged, and not retransmitted (i.e., a TFTP server or user may
-   terminate after sending an error message), so the other end of the
-   connection may not get it.  Therefore timeouts are used to detect
-   such a termination when the error packet has been lost. 
-    
-Errors are caused by three types of events: not being able to satisfy the
-   request (e.g., file not found, access violation, or no such user),
-   receiving a packet which cannot be explained by a delay or
-   duplication in the network (e.g., an incorrectly formed packet), and
-   losing access to a necessary resource (e.g., disk full or access
-   denied during a transfer).
-   
-TFTP recognizes only one error condition that does not cause **termination** (terminatiuon of the connection I assume?), 
-the source port of a received packet 
-being incorrect. In this case, an error packet is sent to the originating host."
-
-Spec "lock step acknowledgement provides flow control and eliminates the need to reorder 
-incoming data packets.". So the below is moot...
-
-Technically, there really is no problem with writing packet #2 before packet #1, but we need to know
-when we are done... and we need to know that all packets were written, if we declare success...
-Could just queue packets for processing and ack as they are received and queued, sort the queue,
-but would have to track when we are 'done'. This all seems to go against the gist of the spec - this is 
-intended to be a simple protocol.
-
-#### Ports
-SPEC: Dest. Port      Picked by destination machine (69 for RRQ or WRQ)."
-
-So we could handle data and acks on some other port...
-
-#### Data Packets
-SPEC: "A data packet of less than 512 bytes signals termination of a transfer."
-
-An error packet also signals termination of transfer.
-
-```Error 5         Unknown transfer ID.```
-
-####Retry and Timeout constants
-TODO: These should be provided as commandline params, and good defaults used.
+The testing I have done is pretty minimal. 
 
 #### Mac TFTP Client idiosyncracies
 If I call ```get xyz```, and that file exists in my local directory, but does not exist on 
-my TFTP server, my server returns and error packet (which is ack'ed) and the client zeros out the local file.
+my TFTP server, my server returns an error packet (which is ack'ed) and the Mac client zeros out the local file.
 
 Not sure if this is expected behavior...
+
+
 
 
 

@@ -1,8 +1,5 @@
 Setup
 -----
-####Add the path to the project sources to your GOPATH.
-#####Example 
-
 Clone the Igneous repository to
  
  ```/Users/<your user name>/GitHub/Igneous```
@@ -11,7 +8,8 @@ Sources are in
  
  ```/Users/<your user name>/GitHub/Igneous/TFTP Server v2.0/tftp/go```
 
-Add the sources path to your GOPATH
+Add the sources path to your GOPATH 
+(had to remove the second path later, GoLand picked it up as a project config param)
 
 ```GOPATH=/usr/local/go/bin:/Users/debjo/GitHub/Igneous/TFTP Server v2.0/tftp/go```
 
