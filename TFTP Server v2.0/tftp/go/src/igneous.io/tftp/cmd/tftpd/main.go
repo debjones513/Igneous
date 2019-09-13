@@ -56,28 +56,28 @@ func serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 		var packet_request tftp.PacketRequest
 		packet_request.Parse(buf)
 
-		go handle_read(pc, addr, packet_request)
+		go handleRead(pc, addr, packet_request)
 
 	case tftp.OpWRQ:
 
 		var packet_request tftp.PacketRequest
 		packet_request.Parse(buf)
 
-		go handle_write(pc, addr, packet_request)
+		go handleWrite(pc, addr, packet_request)
 
 	case tftp.OpData:
 
 		var packet_data tftp.PacketData
 		packet_data.Parse(buf)
 
-		go handle_data(pc, addr, packet_data)
+		go handleData(pc, addr, packet_data)
 
 	case tftp.OpAck:
 
 		var packet_ack tftp.PacketAck
 		packet_ack.Parse(buf)
 
-		go handle_ack(pc, addr, packet_ack)
+		go handleAck(pc, addr, packet_ack)
 
 	case tftp.OpError:
 
@@ -88,7 +88,7 @@ func serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 		var packet_error tftp.PacketError
 		packet_error.Parse(buf)
 
-		go handle_error(pc, addr, packet_error)
+		go handleError(pc, addr, packet_error)
 
 	default:
 		err = fmt.Errorf("unexpected packet type %s", op_code)

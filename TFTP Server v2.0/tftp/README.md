@@ -7,8 +7,21 @@ particular, options are not recognized.
 
 See https://tools.ietf.org/html/rfc1350
 
+Caveat
+-----
+!!! THIS IS NOT PRODUCTION CODE!!!
+
+This code is written as a coding exercise. No design review, limited testing, and comments targeting 
+an exercise - callouts where further work would need to be done, design points would need to be further
+ considered, etc.
+ 
+Testing was done using only a single server - remote transfers are untested.
+
 Usage
 -----
+If you are running this code under a debugger, you will want to set the TFTP client timeouts to a value greater 
+than the defaults. See ```rexmt``` and ```timeouts``` values for Mac.
+
 ####On Mac
 The tftp client app is pre-installed on your Mac.
 
@@ -32,13 +45,20 @@ TODO
 
 Testing
 -------
-TODO
+Testing was done first using a quick client app that will send a packet. Once a simle packet transfer was 
+verified, and the server was stubbed out a little farther, switched over to testing using the TFTP client 
+that ships with Mac.
 
-TODO: other relevant documentation
+Tested using port 9969 rather than stopping the TFTP service that ships with Mac.
 
-Questions
+No GoLang testing done yet...
+
+
+Notes, Questions
 -----
-1. The net.Addr struct will have a different port for each client on localhost - true? Yes
+#### Unique identifier for requests
+The net.Addr struct will have a different port for each client on localhost - true? Yes
+
 Spec: "In order to create a connection, each end of the connection chooses a
           TID for itself, to be used for the duration of that connection.  The
           TID's chosen for a connection should be randomly chosen, so that the
@@ -48,11 +68,15 @@ Spec: "In order to create a connection, each end of the connection chooses a
           destination TID.  These TID's are handed to the supporting UDP (or
           other datagram protocol) as the source and destination ports. "
 
-2. Uploading the same file twice will overwrite the existing file, file data is updated. No - this is an error case ...
+#### Uploading the same file twice
+Uploading the same file twice will overwrite the existing file, file data is updated. 
+
+No - this is an error case ...
 
 ```Error 6         File already exists.```
 
-3. Ack only implies that we received the packet, not that we successfully wrote the packet - true? Or is it better\OK 
+#### Ack
+Ack only implies that we received the packet, not that we successfully wrote the packet - true? Or is it better\OK 
 to wait until the write is done to ack - less concurrency, but if the packet data were corrupted (nil?), failing to ack 
 will trigger a resend. 
 
@@ -83,16 +107,23 @@ incoming data packets.". So the below is moot...
 Technically, there really is no problem with writing packet #2 before packet #1, but we need to know
 when we are done... and we need to know that all packets were written, if we declare success...
 Could just queue packets for processing and ack as they are received and queued, sort the queue,
-but would have to track when we are 'done'.
+but would have to track when we are 'done'. This all seems to go against the gist of the spec - this is 
+intended to be a simple protocol.
 
-4.
-Dest. Port      Picked by destination machine (69 for RRQ or WRQ).
+#### Ports
+SPEC: Dest. Port      Picked by destination machine (69 for RRQ or WRQ)."
+
 So we could handle data and acks on some other port...
 
-5.  SPEC: "A data packet of less than 512 bytes signals termination of a transfer."
+####Data Packets
+SPEC: "A data packet of less than 512 bytes signals termination of a transfer."
+
 An error packet also signals termination of transfer.
 
 ```Error 5         Unknown transfer ID.```
+
+####Retry and Timeout constants
+TODO: These should be provided as commandline params, and good defaults used.
 
 
 

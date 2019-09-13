@@ -10,48 +10,25 @@ import (
 	"time"
 )
 
-const DataBlockSize = 512
-const RetryInterval = 3			// TODO Seconds to wait for an ack before resending a data packet
-const TimeoutInterval = 15		// TODO Seconds to wait before timing out the transfer when retries are being sent.
+// TFTP spec states that the data block size is fixed at 512 bytes. See tem #2.
 
-// Tracks the last block sent or received per request, whether or not the request is incomplete, and the timestamp
-// for the last request was processed. The last two fields are used to cleanup stale entries.
-
-type RequestTracker struct {
-	PacketReq tftp.PacketRequest
-	BlockNum uint16
-	Mux sync.Mutex
-	TransferIncomplete bool
-	LastTranferTime time.Time
-	Acked chan bool
-	Retry chan bool
-	Timeout chan bool
-	BlockAcked bool
-}
-
-func (rt *RequestTracker) retry()  {
-	time.Sleep(time.Second * RetryInterval)
-	rt.Timeout <- true
-	return
-}
-
-func (rt *RequestTracker) timeout()  {
-	time.Sleep(time.Second * TimeoutInterval)
-	rt.Timeout <- true
-	return
-}
+const dataBlockSize = 512
 
 // Maps file names to file contents - TODO File size is limited, OK since this is just a code exercise
 
-var file_cache map[string]string
+var fileCacheMap map[string]string
 
 // Maps client addr to the last block transmitted.
 
-var read_addr_map map[string]*RequestTracker
+var readAddrMap map[string]*RequestTracker
 
 // Maps client addr to the last block transmitted.
 
-var write_addr_map map[string]*RequestTracker
+var writeAddrMap map[string]*RequestTracker
+
+// Mutex to serialize metadata changes done in response to read and write requests.
+
+var lockMetadataChanges sync.Mutex
 
 // Globals to enum lists
 
@@ -60,62 +37,82 @@ var read_addrs *map[string]*RequestTracker
 var write_addrs *map[string]*RequestTracker
 
 func init() {
-	file_cache = make(map[string]string)
-	write_addr_map = make(map[string]*RequestTracker)
-	read_addr_map = make(map[string]*RequestTracker)
 
-	files = &file_cache
-	read_addrs = &read_addr_map
-	write_addrs = &write_addr_map
+	fileCacheMap = make(map[string]string)
+	writeAddrMap = make(map[string]*RequestTracker)
+	readAddrMap = make(map[string]*RequestTracker)
+
+	files = &fileCacheMap
+	read_addrs = &readAddrMap
+	write_addrs = &writeAddrMap
 }
 
-func handle_read(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
+func handleRead(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 	fmt.Printf("Handle Read Packet: %+v \n", p)
 
+	// Take a lock while we setup and verify metadata.
+
+	lockMetadataChanges.Lock()
+	defer deferredMetadataUnlock()
+
+	// Lookup the RequestTracker object in the write request map, if it is found, return an error.
+	// The RequestTracker object will be removed from this map when the write completes.
+	// Do not alow reads against a file that is being written.
+
+	if _, ok := writeAddrMap[addr.String()]; ok == true {
+		sendError(pc, addr, 0, "File write is in progress.")
+		return
+	}
+
 	// Lookup the file in our cache, return an error if the file is not found.
 
-	if _, ok := file_cache[p.Filename]; ok == false {
-		send_error(pc, addr, 1, "File not found.")
+	if _, ok := fileCacheMap[p.Filename]; ok == false {
+		sendError(pc, addr, 1, "File not found.")
 	}
 
 	// Create a map entry to find the RequestTracker object given the client address when sending data packets.
 
-	read_addr_map[addr.String()] = create_tracking_entry(p)
+	readAddrMap[addr.String()] = createTrackingEntry(p)
 
 	// Spec: "RRQ ... packets are acknowledged by DATA or ERROR packets. No ack needed here,
 	// just send the first data packet."
 
-	send_data(pc, addr, p)
+	go sendData(pc, addr, p)
 }
 
-func handle_write(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
+func handleWrite(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 	fmt.Printf("Handle Write Packet: %+v \n", p)
 
+	// Take a lock while we setup and verify metadata.
+
+	lockMetadataChanges.Lock()
+	defer deferredMetadataUnlock()
+
 	// Lookup the file in our cache, return an error if the file already exists.
 
-	if _, ok := file_cache[p.Filename]; ok == true {
-		send_error(pc, addr, 1, "File already exists.")
+	if _, ok := fileCacheMap[p.Filename]; ok == true {
+		sendError(pc, addr, 1, "File already exists.")
 		return
 	}
 
 	// Create a new cache entry for the file.
 
-	file_cache[p.Filename] = ""
+	fileCacheMap[p.Filename] = ""
 
 	// Create a map entry. Used to find the RequestTracker object given the client address during data packet transfers.
 
-	write_addr_map[addr.String()] = create_tracking_entry(p)
+	writeAddrMap[addr.String()] = createTrackingEntry(p)
 
 	// Spec: "A WRQ is acknowledged with an ACK packet with block number set to zero."
 
-	send_ack(pc, addr, 0)
+	go sendAck(pc, addr, 0)
 
 	fmt.Printf("Handle Write Packet: %+v \n  %+v \n  %+v \n", files, read_addrs, write_addrs)
 }
 
-func handle_data(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
+func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 
 	// If we are receiving a data packet, then the client is writing to the server.
 
@@ -127,19 +124,19 @@ func handle_data(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	//   termination, the source port of a received packet being incorrect.
 	//   In this case, an error packet is sent to the originating host."
 
-	if _, ok := write_addr_map[addr.String()]; ok == false {
-		send_error(pc, addr, 5, "Unknown transfer ID.")
+	if _, ok := writeAddrMap[addr.String()]; ok == false {
+		sendError(pc, addr, 5, "Unknown transfer ID.")
 		return
 	}
 
 	// Get the current tracking data.
 
-	rt := write_addr_map[addr.String()]
+	rt := writeAddrMap[addr.String()]
 
 	// Serialize access to the code between Mux.Lock() and Mux.Unlock(), per client address.
 
 	rt.Mux.Lock()
-	defer deferred_unlock(rt)
+	defer rt.DeferredUnlock()
 
 	fmt.Printf("Data Packet Lock Taken: %+v Client: %s Tracker: %+v \n", p, addr.String(), rt)
 
@@ -150,10 +147,10 @@ func handle_data(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	if rt.BlockNum == p.BlockNum {
 		// Duplicate block resent - maybe we did not ack quick enough. Ignore it, we already wrote this block.
 		// TODO Should we go ahead and ack this block a second time?
-		send_ack(pc, addr, p.BlockNum)
+		sendAck(pc, addr, p.BlockNum)
 		return
 	} else if rt.BlockNum + 1 != p.BlockNum {
-		send_error(pc, addr, 0, "Missing data block in transfer sequence.")
+		sendError(pc, addr, 0, "Missing data block in transfer sequence.")
 		return
 	}
 
@@ -180,12 +177,12 @@ func handle_data(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	// TODO See spec item #2, if we do not get the next expected data block, we should retransmit our ack.
 	// TODO "If a packet gets lost ..."
 
-	send_ack(pc, addr, p.BlockNum)
+	sendAck(pc, addr, p.BlockNum)
 
 	// If this is the final transfer packet, and it is empty, delete the Tracker entry and return.
 
 	if len(p.Data) == 0 {
-		delete(write_addr_map, addr.String())
+		delete(writeAddrMap, addr.String())
 		return
 	}
 
@@ -198,10 +195,10 @@ func handle_data(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	// TODO instead, use the block number to multiply by DataBlockSize and find the correct position, maybe slice functions...
 
 	var file_data []string
-	file_data = append(file_data, file_cache[rt.PacketReq.Filename])	// Current data
+	file_data = append(file_data, fileCacheMap[rt.PacketReq.Filename])	// Current data
 	file_data = append(file_data, new_block.String())					// New block
 
-	file_cache[rt.PacketReq.Filename] = strings.Join(file_data, "")
+	fileCacheMap[rt.PacketReq.Filename] = strings.Join(file_data, "")
 
 	// Update the meta data with the last block written and timestamp.
 
@@ -210,8 +207,8 @@ func handle_data(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 
 	// If this is the final transfer packet, delete the RequestTracker entry
 
-	if len(p.Data) < DataBlockSize {
-		delete(write_addr_map, addr.String())
+	if len(p.Data) < dataBlockSize {
+		delete(writeAddrMap, addr.String())
 	}
 
 	// TODO If the transfer for some reason stops before we receive a final transfer packet, then the file is
@@ -222,7 +219,7 @@ func handle_data(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	fmt.Printf("Handle Write Packet: %+v \n  %+v \n  %+v \n", files, read_addrs, write_addrs)
 }
 
-func handle_ack(pc net.PacketConn, addr net.Addr, p tftp.PacketAck) {
+func handleAck(pc net.PacketConn, addr net.Addr, p tftp.PacketAck) {
 
 	fmt.Printf("Handle Ack Packet: %+v \n", p)
 
@@ -230,30 +227,23 @@ func handle_ack(pc net.PacketConn, addr net.Addr, p tftp.PacketAck) {
 	// Update the RequestTracking data.
 	// TODO use a channel to signal the send_data fn to send the next block.
 
-	if _, ok := read_addr_map[addr.String()]; ok == false {
-		send_error(pc, addr, 5, "Unknown transfer ID.")
+	if _, ok := readAddrMap[addr.String()]; ok == false {
+		sendError(pc, addr, 5, "Unknown transfer ID.")
 		return
 	}
 
-	read_addr_map[addr.String()].Acked <- true
+	readAddrMap[addr.String()].Acked <- true
 
 }
 
-func handle_error(pc net.PacketConn, addr net.Addr, p tftp.PacketError) {
+func handleError(pc net.PacketConn, addr net.Addr, p tftp.PacketError) {
 
 	fmt.Printf("Handle Error Packet Packet: %+v \n", p)
 
 	// TODO See item #7 in the spec...
 }
 
-func deferred_unlock(rt *RequestTracker) {
-
-	fmt.Printf("Releasing RequestTracker Lock %+v \n", rt)
-
-	rt.Mux.Unlock()
-}
-
-func send_ack(pc net.PacketConn, addr net.Addr, block_num uint16) {
+func sendAck(pc net.PacketConn, addr net.Addr, block_num uint16) {
 
 	fmt.Printf("Send Ack Packet: %+v \n", block_num)
 
@@ -268,7 +258,7 @@ func send_ack(pc net.PacketConn, addr net.Addr, block_num uint16) {
 	pc.WriteTo(b, addr)
 }
 
-func send_error(pc net.PacketConn, addr net.Addr, Code uint16, Msg  string) {
+func sendError(pc net.PacketConn, addr net.Addr, Code uint16, Msg  string) {
 
 	fmt.Printf("Handle Error Packet: %+v \n", addr)
 
@@ -284,13 +274,13 @@ func send_error(pc net.PacketConn, addr net.Addr, Code uint16, Msg  string) {
 	pc.WriteTo(b, addr)
 }
 
-func send_data(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
+func sendData(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 	fmt.Printf("Handle Read Packet Packet: %+v \n", p)
 
 	// Lookup the file in our cache.
 
-	data := file_cache[p.Filename]
+	data := fileCacheMap[p.Filename]
 
 	// The return value n is the length of the buffer; err is always nil.
 	// TODO If the buffer (the file) becomes too large, Write will panic with ErrTooLarge.
@@ -308,14 +298,14 @@ func send_data(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 	//   last packet (which may be data or an acknowledgment), thus causing
 	//   the sender of the lost packet to retransmit that lost packet."
 
-	block_count := (n / DataBlockSize) + 1
+	block_count := (n / dataBlockSize) + 1
 
 	for i := 0;  i <= block_count; i++ {
 
 		// Get the next block.
 
-		start := i * DataBlockSize
-		end := (i + 1) * DataBlockSize
+		start := i * dataBlockSize
+		end := (i + 1) * dataBlockSize
 
 		new_block := data_buffer.Bytes()[start:end]
 
@@ -330,11 +320,11 @@ func send_data(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 		// Set the block number, set BlockAcked to false and start the timeout fn.
 
-		rt := read_addr_map[addr.String()]
+		rt := readAddrMap[addr.String()]
 
 		rt.BlockNum = dp.BlockNum
 		rt.BlockAcked = false
-		go rt.timeout()
+		go rt.TimeoutTimer()
 
 		// Send the data packet - loop to do retries.
 
@@ -342,7 +332,7 @@ func send_data(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 			pc.WriteTo(b, addr)
 
-			go rt.retry()
+			go rt.RetryTimer()
 
 			// Wait for the ack. If we get no ack within 'retry' seconds, resend.
 			// We will not retransmit forever - if there is no ack, we must timeout.
@@ -359,13 +349,20 @@ func send_data(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 		}
 
 		if !rt.BlockAcked {
-			send_error(pc, addr, 0, "Timeout")
+			sendError(pc, addr, 0, "Timeout")
 			break
 		}
 	}
 }
 
-func create_tracking_entry(p tftp.PacketRequest) *RequestTracker {
+func deferredMetadataUnlock() {
+
+	fmt.Printf("Releasing Metadata Lock \n")
+
+	lockMetadataChanges.Unlock()
+}
+
+func createTrackingEntry(p tftp.PacketRequest) *RequestTracker {
 
 	rt := new(RequestTracker)
 	rt.PacketReq = p
