@@ -12,7 +12,7 @@ const TimeoutInterval = 15		// TODO Seconds to wait before timing out the transf
 
 
 // Tracks the last block sent or received per request, whether or not the request is incomplete, and the timestamp
-// for the last request processed. The last two fields are used to cleanup stale entries.
+// for the last request processed. The last field is used to cleanup stale entries.
 
 type RequestTracker struct {
 	PacketReq tftp.PacketRequest
@@ -22,15 +22,15 @@ type RequestTracker struct {
 	Retry chan bool
 	Timeout chan bool
 	BlockAcked bool
-	TransferIncomplete bool
+	TimedOut bool
 	LastTranferTime time.Time
 }
 
 func (rt *RequestTracker) DeferredUnlock() {
 
-	fmt.Printf("Releasing RequestTracker Lock %+v \n", rt)
-
 	rt.Mux.Unlock()
+
+	fmt.Printf("Released RequestTracker Lock  %p %+v \n", &rt, rt)
 }
 
 func (rt *RequestTracker) RetryTimer()  {

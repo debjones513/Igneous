@@ -53,31 +53,31 @@ func serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 
 	case tftp.OpRRQ:
 
-		var packet_request tftp.PacketRequest
-		packet_request.Parse(buf)
+		var packetRequest tftp.PacketRequest
+		packetRequest.Parse(buf)
 
-		go handleRead(pc, addr, packet_request)
+		go handleRead(pc, addr, packetRequest)
 
 	case tftp.OpWRQ:
 
-		var packet_request tftp.PacketRequest
-		packet_request.Parse(buf)
+		var packetRequest tftp.PacketRequest
+		packetRequest.Parse(buf)
 
-		go handleWrite(pc, addr, packet_request)
+		go handleWrite(pc, addr, packetRequest)
 
 	case tftp.OpData:
 
-		var packet_data tftp.PacketData
-		packet_data.Parse(buf)
+		var packetData tftp.PacketData
+		packetData.Parse(buf)
 
-		go handleData(pc, addr, packet_data)
+		go handleData(pc, addr, packetData)
 
 	case tftp.OpAck:
 
-		var packet_ack tftp.PacketAck
-		packet_ack.Parse(buf)
+		var packetAck tftp.PacketAck
+		packetAck.Parse(buf)
 
-		go handleAck(pc, addr, packet_ack)
+		go handleAck(pc, addr, packetAck)
 
 	case tftp.OpError:
 
@@ -85,10 +85,10 @@ func serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 		//   termination, the source port of a received packet being incorrect.
 		//   In this case, an error packet is sent to the originating host.
 
-		var packet_error tftp.PacketError
-		packet_error.Parse(buf)
+		var packetError tftp.PacketError
+		packetError.Parse(buf)
 
-		go handleError(pc, addr, packet_error)
+		go handleError(pc, addr, packetError)
 
 	default:
 		err = fmt.Errorf("unexpected packet type %s", op_code)
