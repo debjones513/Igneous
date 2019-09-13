@@ -11,6 +11,8 @@ import (
 )
 
 const DataBlockSize = 512
+const RetryInterval = 3			// TODO Seconds to wait for an ack before resending a data packet
+const TimeoutInterval = 15		// TODO Seconds to wait before timing out the transfer when retries are being sent.
 
 // Tracks the last block sent or received per request, whether or not the request is incomplete, and the timestamp
 // for the last request was processed. The last two fields are used to cleanup stale entries.
@@ -18,10 +20,25 @@ const DataBlockSize = 512
 type RequestTracker struct {
 	PacketReq tftp.PacketRequest
 	BlockNum uint16
-	Acked bool
 	Mux sync.Mutex
 	TransferIncomplete bool
 	LastTranferTime time.Time
+	Acked chan bool
+	Retry chan bool
+	Timeout chan bool
+	BlockAcked bool
+}
+
+func (rt *RequestTracker) retry()  {
+	time.Sleep(time.Second * RetryInterval)
+	rt.Timeout <- true
+	return
+}
+
+func (rt *RequestTracker) timeout()  {
+	time.Sleep(time.Second * TimeoutInterval)
+	rt.Timeout <- true
+	return
 }
 
 // Maps file names to file contents - TODO File size is limited, OK since this is just a code exercise
@@ -41,7 +58,6 @@ var write_addr_map map[string]*RequestTracker
 var files *map[string]string
 var read_addrs *map[string]*RequestTracker
 var write_addrs *map[string]*RequestTracker
-
 
 func init() {
 	file_cache = make(map[string]string)
@@ -160,6 +176,9 @@ func handle_data(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	// TODO Ack tells the client we received the packet, it does not report successful processing. If we fail to write
 	// TODO after ack'ing, we panic, and the server fails, or, we recover and send an error packet to terminate
 	// TODO the transfer - correct?
+	//
+	// TODO See spec item #2, if we do not get the next expected data block, we should retransmit our ack.
+	// TODO "If a packet gets lost ..."
 
 	send_ack(pc, addr, p.BlockNum)
 
@@ -198,7 +217,7 @@ func handle_data(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	// TODO If the transfer for some reason stops before we receive a final transfer packet, then the file is
 	// TODO partially written. Added a bit to the RequestTracker to signify incomplete transfer. At some point
 	// TODO these should be cleaned up... and this case should not block a second transfer of the same file.
-	// TODO See item #7 in the spec...
+	// TODO See items #2 and #7 in the spec...
 
 	fmt.Printf("Handle Write Packet: %+v \n  %+v \n  %+v \n", files, read_addrs, write_addrs)
 }
@@ -216,7 +235,7 @@ func handle_ack(pc net.PacketConn, addr net.Addr, p tftp.PacketAck) {
 		return
 	}
 
-	read_addr_map[addr.String()].Acked = true
+	read_addr_map[addr.String()].Acked <- true
 
 }
 
@@ -273,17 +292,21 @@ func send_data(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 	data := file_cache[p.Filename]
 
-	// The return value n is the length of the buffer; err is always nil. If the
-	// buffer becomes too large, Write will panic with ErrTooLarge.
+	// The return value n is the length of the buffer; err is always nil.
+	// TODO If the buffer (the file) becomes too large, Write will panic with ErrTooLarge.
 
 	var data_buffer bytes.Buffer
 	n, _ := data_buffer.WriteString(data)
 
 	// Loop sending data packets until all file data has been sent.
-	// Ensure that a final zero size packet is sent.
-	// Each data packet sent must wait of an ack from the client.
+	// Ensure that a final zero size packet is sent if needed.
+	// Each data packet sent must wait for an ack from the client.
 	// If a data packet gets lost, client retransmits his last ack,
 	// and the server will retransmit the last packet sent.
+	// Spec: "If a packet gets lost in the
+	//   network, the intended recipient will timeout and may retransmit his
+	//   last packet (which may be data or an acknowledgment), thus causing
+	//   the sender of the lost packet to retransmit that lost packet."
 
 	block_count := (n / DataBlockSize) + 1
 
@@ -296,7 +319,7 @@ func send_data(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 		new_block := data_buffer.Bytes()[start:end]
 
-		// Construct a data packet and send it to the client
+		// Construct a data packet
 
 		var dp tftp.PacketData
 		dp.BlockNum = uint16(i + 1)				// TODO downcast is a bad idea...
@@ -305,18 +328,40 @@ func send_data(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 		b := make([]byte, 1024)
 		b = dp.Serialize()
 
-		// Wait for the ack. If we get no ack within 'timeout' seconds, resend.
-		// We will not retransmit forever - if there is no ack, we must timeout.
+		// Set the block number, set BlockAcked to false and start the timeout fn.
 
-		// while no_ack {
 		rt := read_addr_map[addr.String()]
+
 		rt.BlockNum = dp.BlockNum
-		rt.Acked = false
+		rt.BlockAcked = false
+		go rt.timeout()
 
-		pc.WriteTo(b, addr)
+		// Send the data packet - loop to do retries.
 
-		// }
+		for {
 
+			pc.WriteTo(b, addr)
+
+			go rt.retry()
+
+			// Wait for the ack. If we get no ack within 'retry' seconds, resend.
+			// We will not retransmit forever - if there is no ack, we must timeout.
+
+			select {
+			case <- rt.Acked:
+				rt.BlockAcked = true
+				break
+			case <- rt.Retry:
+				continue
+			case <- rt.Timeout:
+				break
+			}
+		}
+
+		if !rt.BlockAcked {
+			send_error(pc, addr, 0, "Timeout")
+			break
+		}
 	}
 }
 
@@ -327,7 +372,10 @@ func create_tracking_entry(p tftp.PacketRequest) *RequestTracker {
 	rt.BlockNum = 0
 	rt.TransferIncomplete = true
 	rt.LastTranferTime = time.Now()
-
+	rt.Acked = make(chan bool, 1)
+	rt.Retry = make(chan bool, 1)
+	rt.Timeout = make(chan bool, 1)
+	rt.BlockAcked = false
 	return rt
 }
 
