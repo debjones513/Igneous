@@ -14,7 +14,7 @@ func main() {
 
 	// Listen on port 69 for all IPs on the local network (localhost only).
 
-	pc, err := net.ListenPacket("udp", ":69")
+	pc, err := net.ListenPacket("udp", ":9969")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -56,28 +56,28 @@ func serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 		var packet_request tftp.PacketRequest
 		packet_request.Parse(buf)
 
-		handle_read(pc, addr, packet_request)
+		go handle_read(pc, addr, packet_request)
 
 	case tftp.OpWRQ:
 
 		var packet_request tftp.PacketRequest
 		packet_request.Parse(buf)
 
-		handle_write(pc, addr, packet_request)
+		go handle_write(pc, addr, packet_request)
 
 	case tftp.OpData:
 
 		var packet_data tftp.PacketData
 		packet_data.Parse(buf)
 
-		handle_data(pc, addr, packet_data)
+		go handle_data(pc, addr, packet_data)
 
 	case tftp.OpAck:
 
 		var packet_ack tftp.PacketAck
 		packet_ack.Parse(buf)
 
-		handle_ack(pc, addr, packet_ack)
+		go handle_ack(pc, addr, packet_ack)
 
 	case tftp.OpError:
 
