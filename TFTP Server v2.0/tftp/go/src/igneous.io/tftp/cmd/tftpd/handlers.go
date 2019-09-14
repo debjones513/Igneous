@@ -404,12 +404,11 @@ func sendData(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 				break
 			}
 
-			if !rt.TimedOut {
+			if rt.TimedOut {
 				sendError(pc, addr, 0, "Timeout", true)
-				break
+				return
 			}
 		}
-
 	}
 
 	if _, ok := readAddrMap[addr.String()]; ok == true {
