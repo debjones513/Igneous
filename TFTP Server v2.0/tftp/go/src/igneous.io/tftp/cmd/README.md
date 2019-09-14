@@ -41,6 +41,8 @@ You should see
 ### GoLand project config params
 
 #### Server
+Open directory ```/Users/<your user name>/GitHub/Igneous/TFTP Server v2.0/tftp```
+
 Choose the ```go build``` configuration template and create a new instance.
 
 
@@ -60,6 +62,8 @@ Module: ```tftp```
 
 
 #### Client
+Open directory ```/Users/<your user name>/GitHub/Igneous/TFTP Server v2.0/tftp/go/src/igneous.io/client```
+
 Choose the ```go build``` configuration template and create a new instance.
 
 

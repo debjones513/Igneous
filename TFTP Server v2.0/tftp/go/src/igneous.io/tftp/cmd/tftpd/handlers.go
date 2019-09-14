@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// TFTP spec states that the data block size is fixed at 512 bytes. See tem #2.
+// TFTP spec states that the data block size is fixed at 512 bytes. See item #2.
 
 const dataBlockSize = 512
 
@@ -75,7 +75,7 @@ func handleRead(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 		return
 	}
 
-	// Create a map entry to find the RequestTracker object given the client address when sending data packets.
+	// Create a new map entry. Used to find the RequestTracker object given the client address when sending data packets.
 
 	readAddrMap[addr.String()] = createTrackingEntry(p)
 
@@ -206,8 +206,9 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	var newBlock bytes.Buffer
 	newBlock.Write(p.Data)
 
-	// TODO memory now holds two copies of the file data ...
-	// TODO instead, use the block number to multiply by DataBlockSize and find the correct position, maybe slice functions...
+	// TODO Next code block causes memory to hold two copies of the file data ...
+	// TODO instead, use the block number to multiply by DataBlockSize and find the correct position, maybe slice
+	// TODO functions...
 
 	var fileData []string
 	fileData = append(fileData, fileCacheMap[rt.PacketReq.Filename])	// Current data
@@ -228,7 +229,7 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	}
 
 	// TODO If the transfer for some reason stops before we receive a final transfer packet, then the file is
-	// TODO partially written. Added a bit to the RequestTracker to signify incomplete transfer. At some point
+	// TODO partially written. Added LastTranferTime to the RequestTracker. At some point
 	// TODO these should be cleaned up... and this case should not block a second transfer of the same file.
 	// TODO See items #2 and #7 in the spec...
 
@@ -267,7 +268,7 @@ func handleError(pc net.PacketConn, addr net.Addr, p tftp.PacketError) {
 
 	debugLog.Printf("Handle Error Packet: %d   %s \n", p.Code, p.Msg)
 
-	// TODO See item #7 in the spec...
+	// See items #2 #7 in the spec.
 }
 
 func sendAck(pc net.PacketConn, addr net.Addr, blockNum uint16) {
@@ -359,7 +360,7 @@ func sendData(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 		newBlock := dataBuffer.Bytes()[start:end]
 
-		// Construct a data packet
+		// Construct a data packet.
 
 		var dp tftp.PacketData
 		dp.BlockNum = uint16(i + 1)				// TODO downcast is a bad idea...not production ready

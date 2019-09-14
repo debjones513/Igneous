@@ -27,6 +27,18 @@ TODO's call out some of the work that would need to be done to finalize a produc
 
 The code uses fmt to log to stdout for debugging purposes - this is not production code.
 
+### Lock order
+
+1. lockMetadataChanges (handleRead & handleWrite)
+
+2. RequestTracker.Mux (handleData)
+
+3. errorMapChanges (handleAck & sendError)
+
+The code does not currently take all 3 locks at once, but if the code is modified, use this order. 
+
+Today the code takes 1 & 3, 2 & 3, or 3
+
 Usage
 -----
 Logs are located in the service binary directory. There is a request log, and a debug log.
