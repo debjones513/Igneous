@@ -59,6 +59,13 @@ func handleRead(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 	lockMetadataChanges.Lock()
 	defer deferredMetadataUnlock()
 
+	// Lookup the file in our cache, return an error if the file is not found.
+
+	if _, ok := fileCacheMap[p.Filename]; ok == false {
+		sendError(pc, addr, 1, "File not found.", true)
+		return
+	}
+
 	// Lookup the RequestTracker object in the write request map, if it is found, return an error.
 	// The RequestTracker object will be removed from this map when the write completes.
 	// Do not allow reads against a file that is being written.
@@ -68,10 +75,10 @@ func handleRead(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 		return
 	}
 
-	// Lookup the file in our cache, return an error if the file is not found.
+	// Process only one read for a given file, per client, at a time.
 
-	if _, ok := fileCacheMap[p.Filename]; ok == false {
-		sendError(pc, addr, 1, "File not found.", true)
+	if _, ok := readAddrMap[addr.String()]; ok == true {
+		sendError(pc, addr, 0, "File read is already in progress for this client.", true)
 		return
 	}
 
@@ -406,10 +413,16 @@ func sendData(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 			if rt.TimedOut {
 				sendError(pc, addr, 0, "Timeout", true)
-				return
+				break
 			}
 		}
+		if rt.TimedOut {
+			break
+		}
 	}
+
+	// TODO Should not need to check for the entry, since we only allow one read, per client, for a given file,
+	// TODO at a time.
 
 	if _, ok := readAddrMap[addr.String()]; ok == true {
 		delete(readAddrMap, addr.String())
