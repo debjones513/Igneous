@@ -3,7 +3,6 @@ package main
 import (
 	"../../../tftp"
 	"bytes"
-	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -51,11 +50,11 @@ func init() {
 
 func handleRead(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
-	fmt.Printf("Handle Read Packet: %+v \n", p)
+	debugLog.Printf("Handle Read Packet: %+v \n", p)
 
 	// Take a lock while we setup and verify metadata.
 
-	fmt.Printf("Take Metadata Lock \n")
+	debugLog.Printf("Take Metadata Lock \n")
 
 	lockMetadataChanges.Lock()
 	defer deferredMetadataUnlock()
@@ -85,16 +84,16 @@ func handleRead(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 	go sendData(pc, addr, p)
 
-	fmt.Printf("Handle Read Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
+	debugLog.Printf("Handle Read Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
 }
 
 func handleWrite(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
-	fmt.Printf("Handle Write Packet: %+v \n", p)
+	debugLog.Printf("Handle Write Packet: %+v \n", p)
 
 	// Take a lock while we setup and verify metadata.
 
-	fmt.Printf("Take Metadata Lock \n")
+	debugLog.Printf("Take Metadata Lock \n")
 
 	lockMetadataChanges.Lock()
 	defer deferredMetadataUnlock()
@@ -118,14 +117,14 @@ func handleWrite(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 	go sendAck(pc, addr, 0)
 
-	fmt.Printf("Handle Write Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
+	debugLog.Printf("Handle Write Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
 }
 
 func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 
 	// If we are receiving a data packet, then the client is writing to the server.
 
-	fmt.Printf("Handle Data Packet: %+v \n", p)
+	debugLog.Printf("Handle Data Packet: %+v \n", p)
 
 	// Lookup the RequestTracker object, if it is not found, return an error.
 	//
@@ -151,7 +150,7 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	rt.Mux.Lock()
 	defer rt.DeferredUnlock()
 
-	fmt.Printf("RequestTracker Lock Taken: %+v Client: %s Tracker: %+v \n", p, addr.String(), rt)
+	debugLog.Printf("RequestTracker Lock Taken: %+v Client: %s Tracker: %+v \n", p, addr.String(), rt)
 
 	// We ack'ed the last data packet before processing was completed, to enable better perf.
 	// Check for duplicate blocks being sent, and that the last packet written corresponds to the data block
@@ -198,7 +197,7 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 
 	if len(p.Data) == 0 {
 		delete(writeAddrMap, addr.String())
-		fmt.Printf("Handle Data Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
+		debugLog.Printf("Handle Data Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
 		return
 	}
 
@@ -233,16 +232,16 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	// TODO these should be cleaned up... and this case should not block a second transfer of the same file.
 	// TODO See items #2 and #7 in the spec...
 
-	fmt.Printf("Handle Data Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
+	debugLog.Printf("Handle Data Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
 }
 
 func handleAck(pc net.PacketConn, addr net.Addr, p tftp.PacketAck) {
 
-	fmt.Printf("Handle Ack Packet: %d \n", p.BlockNum)
+	debugLog.Printf("Handle Ack Packet: %d \n", p.BlockNum)
 
 	// Client is ack'ing an error packet.
 
-	fmt.Printf("Take Error Map Lock \n")
+	debugLog.Printf("Take Error Map Lock \n")
 
 	errorMapChanges.Lock()
 	defer deferredErrorMapUnlock()
@@ -261,19 +260,19 @@ func handleAck(pc net.PacketConn, addr net.Addr, p tftp.PacketAck) {
 
 	readAddrMap[addr.String()].Acked <- true
 
-	fmt.Printf("Handle Ack Packet Exit: %d \n", p.BlockNum)
+	debugLog.Printf("Handle Ack Packet Exit: %d \n", p.BlockNum)
 }
 
 func handleError(pc net.PacketConn, addr net.Addr, p tftp.PacketError) {
 
-	fmt.Printf("Handle Error Packet: %d   %s \n", p.Code, p.Msg)
+	debugLog.Printf("Handle Error Packet: %d   %s \n", p.Code, p.Msg)
 
 	// TODO See item #7 in the spec...
 }
 
 func sendAck(pc net.PacketConn, addr net.Addr, blockNum uint16) {
 
-	fmt.Printf("Send Ack Packet: %+v \n", blockNum)
+	debugLog.Printf("Send Ack Packet: %+v \n", blockNum)
 
 	// Construct an ack packet and send it to the client
 
@@ -285,18 +284,18 @@ func sendAck(pc net.PacketConn, addr net.Addr, blockNum uint16) {
 
 	pc.WriteTo(b, addr)
 
-	fmt.Printf("Send Ack Packet Exit: %d \n", blockNum)
+	debugLog.Printf("Send Ack Packet Exit: %d \n", blockNum)
 }
 
 func sendError(pc net.PacketConn, addr net.Addr, code uint16, msg string, ackExpected bool) {
 
-	fmt.Printf("Send Error Packet: %+v  %d  %s \n", addr, code, msg)
+	debugLog.Printf("Send Error Packet: %+v  %d  %s \n", addr, code, msg)
 
 	// The client will ack error packets sent during a read request.
 	// The ack handler must be able to distinguish between an ack for an error packet and an ack for a data packet.
 
 	if ackExpected {
-		fmt.Printf("Take Error Map Lock \n")
+		debugLog.Printf("Take Error Map Lock \n")
 
 		errorMapChanges.Lock()
 		defer deferredErrorMapUnlock()
@@ -315,12 +314,12 @@ func sendError(pc net.PacketConn, addr net.Addr, code uint16, msg string, ackExp
 
 	pc.WriteTo(b, addr)
 
-	fmt.Printf("Send Error Packet Exit: %d   %s \n", code, msg)
+	debugLog.Printf("Send Error Packet Exit: %d   %s \n", code, msg)
 }
 
 func sendData(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
-	fmt.Printf("Send Data Packet: %+v \n", p)
+	debugLog.Printf("Send Data Packet: %+v \n", p)
 
 	// Lookup the file in our cache.
 
@@ -384,7 +383,7 @@ func sendData(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 			pc.WriteTo(b, addr)
 
-			fmt.Printf("Data for get: %+v \n", b)
+			debugLog.Printf("Data for get: %+v \n", b)
 
 			go rt.RetryTimer()
 
@@ -416,21 +415,21 @@ func sendData(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 		delete(readAddrMap, addr.String())
 	}
 
-	fmt.Printf("Send Data Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
+	debugLog.Printf("Send Data Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
 }
 
 func deferredMetadataUnlock() {
 
 	lockMetadataChanges.Unlock()
 
-	fmt.Printf("Released Metadata Lock \n")
+	debugLog.Printf("Released Metadata Lock \n")
 }
 
 func deferredErrorMapUnlock() {
 
 	errorMapChanges.Unlock()
 
-	fmt.Printf("Released Error Map Lock \n")
+	debugLog.Printf("Released Error Map Lock \n")
 }
 
 func createTrackingEntry(p tftp.PacketRequest) *RequestTracker {

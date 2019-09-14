@@ -2,7 +2,6 @@ package main
 
 import (
 	"../../../tftp"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -30,7 +29,7 @@ func (rt *RequestTracker) DeferredUnlock() {
 
 	rt.Mux.Unlock()
 
-	fmt.Printf("Released RequestTracker Lock  %p %+v \n", &rt, rt)
+	debugLog.Printf("Released RequestTracker Lock  %p %+v \n", &rt, rt)
 }
 
 func (rt *RequestTracker) RetryTimer()  {

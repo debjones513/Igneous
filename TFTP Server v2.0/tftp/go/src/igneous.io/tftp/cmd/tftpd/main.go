@@ -2,26 +2,38 @@ package main
 
 import (
 	"../../../tftp"
-	"fmt"
 	"log"
 	"net"
+	"os"
 )
 
 /// http://computernetworkingsimplified.in/application-layer/tftp-works/
 // https://tools.ietf.org/html/rfc1350
 
+var requestLog *log.Logger
+var debugLog  *log.Logger
+
 func main() {
+
+	// Setup logs.
+
+	fileRequest, fileDebug :=  setupLogFiles()
+	defer fileRequest.Close()
+	defer fileDebug.Close()
+
+	requestLog = log.New(fileRequest, "", log.Ldate | log.Ltime)
+	debugLog = log.New(fileDebug, "", log.Ldate | log.Ltime)
 
 	// Listen on port 69 for all IPs on the local network (localhost only).
 
-	pc, err := net.ListenPacket("udp", ":69")
+	pc, err := net.ListenPacket("udp", ":9969")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer pc.Close()
 
-	fmt.Printf("Connection: %+v \n", pc)
-	fmt.Printf("Local Addr: %+v \n", pc.LocalAddr())
+	debugLog.Printf("Connection: %+v \n", pc)
+	debugLog.Printf("Local Addr: %+v \n", pc.LocalAddr())
 
 	// Handle requests
 
@@ -35,7 +47,6 @@ func main() {
 
 		serve(pc, addr, buf[:n])
 	}
-
 }
 
 func serve(pc net.PacketConn, addr net.Addr, buf []byte) {
@@ -53,12 +64,16 @@ func serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 
 	case tftp.OpRRQ:
 
+		requestLog.Println("Read")
+
 		var packetRequest tftp.PacketRequest
 		packetRequest.Parse(buf)
 
 		go handleRead(pc, addr, packetRequest)
 
 	case tftp.OpWRQ:
+
+		requestLog.Println("Write")
 
 		var packetRequest tftp.PacketRequest
 		packetRequest.Parse(buf)
@@ -91,7 +106,26 @@ func serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 		go handleError(pc, addr, packetError)
 
 	default:
-		err = fmt.Errorf("unexpected packet type %s", op_code)
+
+		requestLog.Printf("Unexpected packet type %s", op_code)
 		return
 	}
 }
+
+func setupLogFiles() (*os.File, *os.File) {
+
+	// Setup logs.
+
+	fileRequest, errRequest := os.Create("tftp_request.log")
+	if errRequest != nil {
+		log.Fatal(errRequest)
+	}
+
+	fileDebug, errDebug := os.Create("tftp_debug.log")
+	if errDebug != nil {
+		log.Fatal(errDebug)
+	}
+
+	return fileRequest, fileDebug
+}
+

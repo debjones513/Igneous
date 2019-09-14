@@ -25,8 +25,12 @@ give the reviewers a little insight into what I was thinking.
 
 TODO's call out some of the work that would need to be done to finalize a production ready service.
 
+The code uses fmt to log to stdout for debugging purposes - this is not production code.
+
 Usage
 -----
+Logs are located in the service binary directory. There is a request log, and a debug log.
+
 If you are running this code under a debugger, you will want to set the TFTP client timeouts to a value greater 
 than the defaults. See ```rexmt``` and ```timeouts``` values for Mac.
 
