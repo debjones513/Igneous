@@ -163,7 +163,7 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	// Check for duplicate blocks being sent, and that the last packet written corresponds to the data block
 	// preceding the current data block.
 
-	if rt.BlockNum == p.BlockNum {
+	if p.BlockNum <= rt.BlockNum {
 		// Duplicate block resent - maybe we did not ack quick enough. Ignore it, we already wrote this block.
 		// TODO Should we go ahead and ack this block a second time? I think yes, each packet should be ack'ed.
 		sendAck(pc, addr, p.BlockNum)
