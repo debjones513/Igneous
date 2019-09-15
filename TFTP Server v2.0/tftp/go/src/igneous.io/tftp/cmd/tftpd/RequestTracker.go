@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-const RetryInterval = 3			// TODO Seconds to wait for an ack before resending a data packet
-const TimeoutInterval = 15		// TODO Seconds to wait before timing out the transfer when retries are being sent.
+const RetryInterval = 60			// TODO Seconds to wait for an ack before resending a data packet
+const TimeoutInterval = 600		// TODO Seconds to wait before timing out the transfer when retries are being sent.
 
 
 // Tracks the last block sent or received per request, whether or not the request is incomplete, and the timestamp
@@ -17,11 +17,13 @@ type RequestTracker struct {
 	PacketReq tftp.PacketRequest
 	BlockNum uint16
 	Mux sync.Mutex
-	Acked chan bool
-	Retry chan bool
-	Timeout chan bool
-	BlockAcked bool
-	TimedOut bool
+	Acked chan bool					// Reads
+	BlockAcked bool					// Reads
+	Retry chan bool					// Reads and writes
+	Timeout chan bool				// Reads and writes
+	ReceivedBlockNum chan uint16	// Writes
+	LastBlockWritten bool			// Writes
+	PrevAckReceived chan bool		// Writes
 	LastTranferTime time.Time
 }
 

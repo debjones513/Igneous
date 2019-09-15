@@ -122,7 +122,7 @@ func handleWrite(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 	// Spec: "A WRQ is acknowledged with an ACK packet with block number set to zero."
 
-	go sendAck(pc, addr, 0)
+	go sendAck(pc, addr, 0, false)
 
 	debugLog.Printf("Handle Write Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
 }
@@ -138,10 +138,22 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	// Spec: "TFTP recognizes only one error condition that does not cause
 	//   termination, the source port of a received packet being incorrect.
 	//   In this case, an error packet is sent to the originating host."
+	//
+	// Note that if the final data packet is sent twice, we will execute this block.
 
 	if _, ok := writeAddrMap[addr.String()]; ok == false {
 		sendError(pc, addr, 5, "Unknown transfer ID.", false)
 		return
+	}
+
+	// We resend the the ack until we get the next data block, which signals that the ack was received.
+	// The last block is a special case, see the spec item #6. For this code exercise, taking this route
+	// "The host acknowledging the final DATA packet may terminate its side of the connection on sending the final ACK."
+
+	last := false
+
+	if len(p.Data) < dataBlockSize {
+		last = true
 	}
 
 	// Get the request tracking data.
@@ -164,23 +176,31 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	// preceding the current data block.
 
 	if p.BlockNum <= rt.BlockNum {
-		// Duplicate block resent - maybe we did not ack quick enough. Ignore it, we already wrote this block.
-		// TODO Should we go ahead and ack this block a second time? I think yes, each packet should be ack'ed.
-		sendAck(pc, addr, p.BlockNum)
+		// Duplicate block - ignore it. The ack routine retries.
 		return
 	} else if rt.BlockNum + 1 != p.BlockNum {
 		sendError(pc, addr, 0, "Missing data block in transfer sequence.", false)
 		return
 	}
 
+	// Let the sendAck routine know that the last ack is acknowledged.
+
+	rt.ReceivedBlockNum <- p.BlockNum
+
+	// Wait for previous sendAck routine to exit.
+
+	select {
+	case <-rt.PrevAckReceived:
+	}
+
 	// Send an ack to the client.
 	//
-	// Once the ack is sent, the client will send the next packet. We lock the meta data, so that if the next packet
-	// arrives and begins processing, before processing for this packet is complete, the next packet will block
-	// we can do the write and update the meta data.  This helps to eliminate any wait-time between processing
+	// Once the ack is sent, the client will send the next packet. We lock the Request Tracker, so that if the next
+	// packet arrives and begins processing, before processing for this packet is complete, the next packet will block
+	// we can do the write and update the meta data. This helps to eliminate any wait-time between processing
 	// data packets. Note that at most 1 packet, the next packet, is waiting at any given time. Also note that
 	// serializing the data packets here could result in retransmits, if the ack is not transmitted to the client
-	// before the timeout expires.
+	// before the retry timeout expires.
 	//
 	// This method has the potential to eliminate all time that would be spent waiting for the next packet to be
 	// transmitted over the wire - for a large number if packets, this could be a significant perf benefit.
@@ -188,15 +208,8 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	// then we would put the weight on successful completion rather than speed, and wait to ack.
 	// Additionally, if too many packet retransmits happen, because the client timed out before getting an ack,
 	// that increases net traffic, and should be considered for a final solution.
-	//
-	// TODO Ack tells the client we received the packet, it does not report successful processing. If we fail to write
-	// TODO after ack'ing, we panic, and the server fails, or, we recover and send an error packet to terminate
-	// TODO the transfer - correct?
-	//
-	// TODO See spec item #2, if we do not get the next expected data block, we should retransmit our ack.
-	// TODO "If a packet gets lost ..."
 
-	sendAck(pc, addr, p.BlockNum)
+	go sendAck(pc, addr, p.BlockNum, last)
 
 	// If this is the final transfer packet, and it is empty, delete the RequestTracker entry and return.
 	// OK to delete here before the deferred fn to unlock runs - memory will not be garbage collected until
@@ -236,7 +249,7 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	}
 
 	// TODO If the transfer for some reason stops before we receive a final transfer packet, then the file is
-	// TODO partially written. Added LastTranferTime to the RequestTracker. At some point
+	// TODO partially written. Added LastTransferTime to the RequestTracker. At some point
 	// TODO these should be cleaned up... and this case should not block a second transfer of the same file.
 	// TODO See items #2 and #7 in the spec...
 
@@ -278,11 +291,11 @@ func handleError(pc net.PacketConn, addr net.Addr, p tftp.PacketError) {
 	// See items #2 #7 in the spec.
 }
 
-func sendAck(pc net.PacketConn, addr net.Addr, blockNum uint16) {
+func sendAck(pc net.PacketConn, addr net.Addr, blockNum uint16, last bool) {
 
 	debugLog.Printf("Send Ack Packet: %+v \n", blockNum)
 
-	// Construct an ack packet and send it to the client
+	// Construct an ack packet.
 
 	var ackPacket tftp.PacketAck
 	ackPacket.BlockNum = blockNum
@@ -290,7 +303,70 @@ func sendAck(pc net.PacketConn, addr net.Addr, blockNum uint16) {
 	b := make([]byte, 1024)
 	b = ackPacket.Serialize()
 
-	pc.WriteTo(b, addr)
+	// Special case the last packet. Our signal that an ack is received, is that the next data packet is sent.
+	// For the last packet, handle as per the spec item #6. OK to send one ack, or, ack again if the last packet
+	// is received again. Doing the former for this code exercise.
+
+	if last {
+		pc.WriteTo(b, addr)
+		debugLog.Printf("Last Packet Acked, data: %+v \n", b)
+		return
+	}
+
+	// Start the timeout fn.
+
+	rt := writeAddrMap[addr.String()]
+
+	go rt.TimeoutTimer()
+
+	// Send the ack packet - loop to do retries.
+
+	for {
+
+		pc.WriteTo(b, addr)
+
+		debugLog.Printf("Ack Packet data: %+v \n", b)
+
+		go rt.RetryTimer()
+
+		// Wait for the next data packet. If we get no data packet within 'retry' seconds, resend.
+		// We will not retransmit forever - if there is no data packet received, we must timeout.
+
+		received := false
+		failure := false
+		timeout := false
+
+		select {
+		case  rcb := <-rt.ReceivedBlockNum:
+			if rcb == (blockNum + 1) {
+				received = true
+				rt.PrevAckReceived <- true
+			} else {
+				failure = true
+			}
+		case <- rt.Retry:
+			continue
+		case <- rt.Timeout:
+			timeout = true
+		}
+
+		if received {
+			debugLog.Printf("Ack received for block %d \n", blockNum)
+			break
+		}
+
+		if timeout {
+			delete(writeAddrMap, addr.String())
+			sendError(pc, addr, 0, "Timeout", false)
+			debugLog.Printf("Send Ack Packet Timeout: %d \n", blockNum)
+			break
+		}
+
+		if failure {
+			debugLog.Printf("Ack - unexpected block %d: %d \n", blockNum)
+			break
+		}
+	}
 
 	debugLog.Printf("Send Ack Packet Exit: %d \n", blockNum)
 }
@@ -330,6 +406,7 @@ func sendData(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 	debugLog.Printf("Send Data Packet: %+v \n", p)
 
 	// Lookup the file in our cache.
+	// TODO Not yet handling deletes, so if we get here, we kow the file exists.
 
 	data := fileCacheMap[p.Filename]
 
@@ -382,7 +459,8 @@ func sendData(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 		rt.BlockNum = dp.BlockNum
 		rt.BlockAcked = false
-		rt.TimedOut = false
+		timeout := false
+
 		go rt.TimeoutTimer()
 
 		// Send the data packet - loop to do retries.
@@ -404,19 +482,19 @@ func sendData(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 			case <- rt.Retry:
 				continue
 			case <- rt.Timeout:
-				rt.TimedOut = true
+				timeout = true
 			}
 
 			if rt.BlockAcked {
 				break
 			}
 
-			if rt.TimedOut {
+			if timeout {
 				sendError(pc, addr, 0, "Timeout", true)
 				break
 			}
 		}
-		if rt.TimedOut {
+		if timeout {
 			break
 		}
 	}
@@ -454,6 +532,8 @@ func createTrackingEntry(p tftp.PacketRequest) *RequestTracker {
 	rt.Acked = make(chan bool, 1)
 	rt.Retry = make(chan bool, 1)
 	rt.Timeout = make(chan bool, 1)
+	rt.ReceivedBlockNum = make(chan uint16, 1)
+	rt.PrevAckReceived = make(chan bool, 1)
 	rt.BlockAcked = false
 	return rt
 }
