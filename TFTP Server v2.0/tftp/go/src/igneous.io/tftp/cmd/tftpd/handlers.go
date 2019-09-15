@@ -193,6 +193,17 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	case <-rt.PrevAckReceived:
 	}
 
+	// If this is the final transfer packet, and it is empty, ack, delete the RequestTracker entry and return.
+	// OK to delete here before the deferred fn to unlock runs - memory will not be garbage collected until
+	// the last ref is released. The rt var takes a ref.
+
+	if len(p.Data) == 0 {
+		sendAck(pc, addr, p.BlockNum, last)
+		delete(writeAddrMap, addr.String())
+		debugLog.Printf("Handle Data Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
+		return
+	}
+
 	// Send an ack to the client.
 	//
 	// Once the ack is sent, the client will send the next packet. We lock the Request Tracker, so that if the next
@@ -209,16 +220,9 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	// Additionally, if too many packet retransmits happen, because the client timed out before getting an ack,
 	// that increases net traffic, and should be considered for a final solution.
 
-	go sendAck(pc, addr, p.BlockNum, last)
 
-	// If this is the final transfer packet, and it is empty, delete the RequestTracker entry and return.
-	// OK to delete here before the deferred fn to unlock runs - memory will not be garbage collected until
-	// the last ref is released. The rt var takes a ref.
-
-	if len(p.Data) == 0 {
-		delete(writeAddrMap, addr.String())
-		debugLog.Printf("Handle Data Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
-		return
+	if !last {
+		go sendAck(pc, addr, p.BlockNum, last)
 	}
 
 	// Write the next block of data to the in-memory file.
@@ -241,10 +245,11 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	rt.BlockNum = p.BlockNum
 	rt.LastTranferTime = time.Now()
 
-	// If this is the final transfer packet, delete the RequestTracker entry
+	// If this is the final transfer packet, ack and delete the RequestTracker entry
 	// OK to delete here before the deferred fn to unlock runs - see above.
 
-	if len(p.Data) < dataBlockSize {
+	if last {
+		sendAck(pc, addr, p.BlockNum, last)
 		delete(writeAddrMap, addr.String())
 	}
 
@@ -406,7 +411,7 @@ func sendData(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 	debugLog.Printf("Send Data Packet: %+v \n", p)
 
 	// Lookup the file in our cache.
-	// TODO Not yet handling deletes, so if we get here, we kow the file exists.
+	// TODO Not yet handling deletes, so if we get here, we know the file exists.
 
 	data := fileCacheMap[p.Filename]
 

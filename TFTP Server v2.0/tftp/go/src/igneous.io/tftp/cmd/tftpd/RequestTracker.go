@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-const RetryInterval = 60			// TODO Seconds to wait for an ack before resending a data packet
-const TimeoutInterval = 600		// TODO Seconds to wait before timing out the transfer when retries are being sent.
+const RetryInterval = 5			// TODO Seconds to wait for an ack before resending a data packet
+const TimeoutInterval = 30		// TODO Seconds to wait before timing out the transfer when retries are being sent.
 
 
 // Tracks the last block sent or received per request, whether or not the request is incomplete, and the timestamp
