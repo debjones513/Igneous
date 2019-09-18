@@ -122,7 +122,9 @@ func handleWrite(pc net.PacketConn, addr net.Addr, p tftp.PacketRequest) {
 
 	// Spec: "A WRQ is acknowledged with an ACK packet with block number set to zero."
 
-	go sendAck(pc, addr, 0, false)
+	rt := writeAddrMap[addr.String()]
+
+	go sendAck(pc, addr, 0, false, rt)
 
 	debugLog.Printf("Handle Write Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
 }
@@ -198,7 +200,7 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	// the last ref is released. The rt var takes a ref.
 
 	if len(p.Data) == 0 {
-		sendAck(pc, addr, p.BlockNum, last)
+		sendAck(pc, addr, p.BlockNum, last, rt)
 		delete(writeAddrMap, addr.String())
 		debugLog.Printf("Handle Data Packet Exit: %+v \n  %+v \n  %+v \n", fileCacheMap, readAddrMap, writeAddrMap)
 		return
@@ -222,7 +224,7 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 
 
 	if !last {
-		go sendAck(pc, addr, p.BlockNum, last)
+		go sendAck(pc, addr, p.BlockNum, last, rt)
 	}
 
 	// Write the next block of data to the in-memory file.
@@ -249,7 +251,7 @@ func handleData(pc net.PacketConn, addr net.Addr, p tftp.PacketData) {
 	// OK to delete here before the deferred fn to unlock runs - see above.
 
 	if last {
-		sendAck(pc, addr, p.BlockNum, last)
+		sendAck(pc, addr, p.BlockNum, last, rt)
 		delete(writeAddrMap, addr.String())
 	}
 
@@ -296,7 +298,7 @@ func handleError(pc net.PacketConn, addr net.Addr, p tftp.PacketError) {
 	// See items #2 #7 in the spec.
 }
 
-func sendAck(pc net.PacketConn, addr net.Addr, blockNum uint16, last bool) {
+func sendAck(pc net.PacketConn, addr net.Addr, blockNum uint16, last bool, rt *RequestTracker) {
 
 	debugLog.Printf("Send Ack Packet: %+v \n", blockNum)
 
@@ -320,7 +322,7 @@ func sendAck(pc net.PacketConn, addr net.Addr, blockNum uint16, last bool) {
 
 	// Start the timeout fn.
 
-	rt := writeAddrMap[addr.String()]
+	//rt := writeAddrMap[addr.String()]
 
 	go rt.TimeoutTimer()
 
